@@ -1,0 +1,42 @@
+
+jobs:
+  - job: Deploy
+    displayName: Deploy to AWS EC2
+
+    steps:
+      - task: DownloadBuildArtifacts@1
+        displayName: Download application artifact
+        inputs:
+          buildType: current
+          downloadType: single
+          artifactName: application
+          downloadPath: '$(Pipeline.Workspace)'
+
+      - task: CopyFilesOverSSH@0
+        displayName: Copy package to EC2
+        inputs:
+          sshEndpoint: 'ec2-ssh'
+          sourceFolder: '$(Pipeline.Workspace)/application'
+          contents: 'build.zip'
+          targetFolder: '/tmp'
+
+      - task: SSH@0
+        displayName: Install and restart application
+        inputs:
+          sshEndpoint: 'ec2-ssh'
+          runOptions: inline
+          inline: |
+            set -e
+            mkdir -p /home/ubuntu/sample-node-app
+            unzip -o /tmp/build.zip -d /home/ubuntu/sample-node-app
+            cd /home/ubuntu/sample-node-app
+            npm ci --omit=dev
+
+            if pm2 describe azure-pipeline >/dev/null 2>&1; then
+              pm2 reload azure-pipeline
+            else
+              pm2 start src/index.js --name azure-pipeline
+            fi
+
+            pm2 save
+            rm -f /tmp/build.zip
